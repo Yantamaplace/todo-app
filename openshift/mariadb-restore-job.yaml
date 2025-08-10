@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: mysql-restore-
+  labels:
+    app: todo-app
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: todo-app
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restore
+          image: registry.redhat.io/rhel8/mariadb-105
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              set -e
+              echo "[restore] listing /backup ..."
+              ls -lah /backup || true
+              LATEST=$(ls -1t /backup/todoapp-*.sql.gz 2>/dev/null | head -1 || true)
+              if [[ -z "$LATEST" ]]; then
+                echo "[restore] No backup files found in /backup"
+                exit 1
+              fi
+              echo "[restore] Restoring from $LATEST"
+              gunzip < "$LATEST" | mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"
+              echo "[restore] Restore completed."
+          env:
+            - name: MYSQL_HOST
+              value: mysql
+            - name: MYSQL_USER
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_USER}}
+            - name: MYSQL_PASSWORD
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_PASSWORD}}
+            - name: MYSQL_DATABASE
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_DATABASE}}
+          volumeMounts:
+            - name: backup
+              mountPath: /backup
+      volumes:
+        - name: backup
+          persistentVolumeClaim:
+            claimName: mysql-backup-pvc

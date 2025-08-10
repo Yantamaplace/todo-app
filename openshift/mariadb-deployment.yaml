@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  labels:
+    app: todo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: registry.redhat.io/rhel8/mariadb-105
+          ports:
+            - containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: db-credentials
+          volumeMounts:
+            - name: mariadb-storage
+              mountPath: /var/lib/mysql
+            - name: mariadb-backup-storage
+              mountPath: /backup
+      volumes:
+        - name: mariadb-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc          # ★ 修正：データ用 PVC
+        - name: mariadb-backup-storage
+          persistentVolumeClaim:
+            claimName: mysql-backup-pvc   # ★ 修正：バックアップ用 PVC
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  labels:
+    app: todo-app
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+  selector:
+    app: mariadb

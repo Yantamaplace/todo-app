@@ -1,0 +1,122 @@
+# =========================================
+# 1) バックアップ用 PVC（RWX）
+# =========================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-backup-pvc
+  labels:
+    app: todo-app
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: azurefile-csi
+---
+# =========================================
+# 2) バックアップ CronJob（毎日18:00）
+# =========================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mysql-backup
+  labels:
+    app: todo-app
+spec:
+  schedule: "0 18 * * *"
+  jobTemplate:
+    metadata:
+      labels:
+        app: todo-app
+    spec:
+      template:
+        metadata:
+          labels:
+            app: todo-app
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: registry.redhat.io/rhel8/mariadb-105
+              command: ["/bin/bash","-c"]
+              args:
+                - |
+                  echo "[backup] Starting backup..."
+                  mysqldump --protocol=tcp -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" \
+                    | gzip > /backup/todoapp-$(date +%F_%H-%M-%S).sql.gz
+                  echo "[backup] Finished"
+              env:
+                - name: MYSQL_HOST
+                  value: mysql
+                - name: MYSQL_USER
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_USER}}
+                - name: MYSQL_PASSWORD
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_PASSWORD}}
+                - name: MYSQL_DATABASE
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_DATABASE}}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: mysql-backup-pvc
+---
+# =========================================
+# 3) リストア CronJob（デフォルト無効）
+# =========================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mysql-restore
+  labels:
+    app: todo-app
+spec:
+  schedule: "30 4 * * *"
+  suspend: true
+  jobTemplate:
+    metadata:
+      labels:
+        app: todo-app
+    spec:
+      template:
+        metadata:
+          labels:
+            app: todo-app
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: restore
+              image: registry.redhat.io/rhel8/mariadb-105
+              command: ["/bin/bash","-c"]
+              args:
+                - |
+                  set -e
+                  echo "[restore] listing /backup ..."
+                  ls -lah /backup || true
+                  LATEST=$(ls -1t /backup/todoapp-*.sql.gz 2>/dev/null | head -1 || true)
+                  if [[ -z "$LATEST" ]]; then
+                    echo "[restore] No backup files found in /backup"
+                    exit 1
+                  fi
+                  echo "[restore] Restoring from $LATEST"
+                  gunzip < "$LATEST" | mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"
+                  echo "[restore] Restore completed."
+              env:
+                - name: MYSQL_HOST
+                  value: mysql
+                - name: MYSQL_USER
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_USER}}
+                - name: MYSQL_PASSWORD
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_PASSWORD}}
+                - name: MYSQL_DATABASE
+                  valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_DATABASE}}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: mysql-backup-pvc

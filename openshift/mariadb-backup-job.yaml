@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: mysql-backup-
+  labels:
+    app: todo-app
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: todo-app
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: backup
+          image: registry.redhat.io/rhel8/mariadb-105
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              echo "[backup] Starting backup..."
+              mysqldump --protocol=tcp -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" \
+                | gzip > /backup/todoapp-$(date +%F_%H-%M-%S).sql.gz
+              echo "[backup] Finished"
+          env:
+            - name: MYSQL_HOST
+              value: mysql
+            - name: MYSQL_USER
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_USER}}
+            - name: MYSQL_PASSWORD
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_PASSWORD}}
+            - name: MYSQL_DATABASE
+              valueFrom: {secretKeyRef: {name: db-credentials, key: MYSQL_DATABASE}}
+          volumeMounts:
+            - name: backup
+              mountPath: /backup
+      volumes:
+        - name: backup
+          persistentVolumeClaim:
+            claimName: mysql-backup-pvc
