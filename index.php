@@ -1,32 +1,41 @@
 <?php
+    $conn = new mysqli(getenv('DB_HOST'), getenv('DB_USER'), getenv('DB_PASSWORD'), getenv('DB_NAME'));
+    if ($conn->connect_error) { die("Connection failed: " . $conn->connect_error); }
+    $conn->query("CREATE TABLE IF NOT EXISTS todos (id INT AUTO_INCREMENT PRIMARY KEY, task TEXT)");
 
-define('HOSTNAME', getenv("DB_HOST"));
-define('DATABASE', getenv("DB_NAME"));
-define('USERNAME', getenv("DB_USER"));
-define('PASSWORD', getenv("DB_PASSWORD"));
+    if ($_SERVER["REQUEST_METHOD"] == "POST") {
+        if (isset($_POST['add'])) {
+            $stmt = $conn->prepare("INSERT INTO todos (task) VALUES (?)");
+            $stmt->bind_param("s", $_POST['task']);
+            $stmt->execute();
+        } elseif (isset($_POST['delete'])) {
+            $stmt = $conn->prepare("DELETE FROM todos WHERE id = ?");
+            $stmt->bind_param("i", $_POST['id']);
+            $stmt->execute();
+        } elseif (isset($_POST['edit'])) {
+            $stmt = $conn->prepare("UPDATE todos SET task = ? WHERE id = ?");
+            $stmt->bind_param("si", $_POST['task'], $_POST['id']);
+            $stmt->execute();
+        }
+    }
 
-
-try {
-  /// DB接続を試みる
-  $db  = new PDO('mysql:host=' . HOSTNAME . ';dbname=' . DATABASE, USERNAME, PASSWORD);
-  $msg = "MySQL への接続確認が取れました。";
-} catch (PDOException $e) {
-  $isConnect = false;
-  $msg       = "MySQL への接続に失敗しました。<br>(" . $e->getMessage() . ")";
-}
-
-$i = 100 * 100;
-echo "Hello World from Webhook!!";
-echo $i;
-?>
-  
-<html>
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-    <title>MySQL接続確認</title>
-  </head>
-  <body>
-    <h1>MySQL接続確認</h1>
-    <p><?php echo $msg; ?></p>
-  </body>
-</html>
+    $result = $conn->query("SELECT * FROM todos");
+    ?>
+    <form method="post">
+        <input name="task" placeholder="やること">
+        <button type="submit" name="add">ついか</button>
+    </form>
+    <ul>
+        <?php while($row = $result->fetch_assoc()): ?>
+        <li>
+            <?= htmlspecialchars($row['task']) ?>
+            <form style="display:inline" method="post">
+                <input type="hidden" name="id" value="<?= $row['id'] ?>">
+                <input name="task" value="<?= htmlspecialchars($row['task']) ?>">
+                <button name="edit">へんしゅう</button>
+                <button name="delete">さくじょ</button>
+            </form>
+        </li>
+        <?php endwhile; ?>
+    </ul>
+    <?php $conn->close(); ?>
