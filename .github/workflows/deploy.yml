@@ -1,0 +1,91 @@
+name: Build & Deploy to OpenShift
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # GHCRへpushに必要
+
+concurrency:
+  group: php-todo-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/php-todo
+  NAMESPACE: ${{ secrets.OPENSHIFT_NAMESPACE }}
+  CLUSTER: ${{ secrets.OPENSHIFT_SERVER }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Docker Buildx（キャッシュ効かせたい場合）
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # GHCR login（GITHUB_TOKENでOK）
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # Build & push（タグは短縮SHA）
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./todo-app
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      # oc CLI
+      - name: Install oc CLI
+        uses: redhat-actions/oc-installer@v1
+        with:
+          oc_version: 'latest'
+
+      # oc login
+      - name: Login to OpenShift
+        run: |
+          oc login "${CLUSTER}" --token="${{ secrets.OPENSHIFT_TOKEN }}" --insecure-skip-tls-verify=true
+          oc project "${NAMESPACE}"
+
+      # GHCR pull用のdocker-registry secret を作成/更新（idempotent）
+      - name: Ensure imagePullSecret for GHCR
+        run: |
+          oc create secret docker-registry ghcr-creds \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            --docker-email="ci@example.com" \
+            -n "${NAMESPACE}" \
+            --dry-run=client -o yaml | oc apply -f -
+
+      # （初回のみ必要）PodのSAにpull secretを紐づけたい場合は以下を有効化
+      # - name: Patch default SA to use ghcr-creds
+      #   run: |
+      #     oc patch serviceaccount default \
+      #       -p '{"imagePullSecrets":[{"name":"ghcr-creds"}]}' -n "${NAMESPACE}"
+
+      # デプロイのイメージを差し替え（SHAタグを使いキャッシュ回避）
+      - name: Update Deployment image
+        run: |
+          oc set image deployment/php-todo php-todo=${{ env.IMAGE_NAME }}:${{ github.sha }} -n "${NAMESPACE}"
+
+      # ロールアウト監視
+      - name: Wait for rollout
+        run: |
+          oc rollout status deployment/php-todo -n "${NAMESPACE}" --timeout=120s
+
+      # 簡易ヘルスチェック（Service経由）
+      - name: Sanity check (cluster-internal)
+        run: |
+          # BusyBox Podを一時起動してService疎通を確認
+          oc run curlcheck --rm -i -t --image=busybox --restart=Never -- \
+            sh -c "wget -qO- http://php-todo:8080 | head -n 5" || true
