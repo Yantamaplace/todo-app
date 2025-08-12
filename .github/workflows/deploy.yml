@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/php-todo
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/todo-app
   NAMESPACE: ${{ secrets.OPENSHIFT_NAMESPACE }}
   CLUSTER: ${{ secrets.OPENSHIFT_SERVER }}
 
