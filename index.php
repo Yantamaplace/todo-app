@@ -22,8 +22,8 @@
     $result = $conn->query("SELECT * FROM todos");
     ?>
     <form method="post">
-        <input name="task" placeholder="やること">
-        <button type="submit" name="add">ついか</button>
+        <input name="task" placeholder="Todo入力">
+        <button type="submit" name="add">ついのか</button>
     </form>
     <ul>
         <?php while($row = $result->fetch_assoc()): ?>
@@ -32,8 +32,8 @@
             <form style="display:inline" method="post">
                 <input type="hidden" name="id" value="<?= $row['id'] ?>">
                 <input name="task" value="<?= htmlspecialchars($row['task']) ?>">
-                <button name="edit">へんしゅう</button>
-                <button name="delete">さくじょ</button>
+                <button name="edit">へんのしゅう</button>
+                <button name="delete">さくのじょ</button>
             </form>
         </li>
         <?php endwhile; ?>
