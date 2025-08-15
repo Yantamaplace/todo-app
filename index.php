@@ -23,7 +23,7 @@
     ?>
     <form method="post">
         <input name="task" placeholder="Todo入力">
-        <button type="submit" name="add">ついのか</button>
+        <button type="submit" name="add">追加</button>
     </form>
     <ul>
         <?php while($row = $result->fetch_assoc()): ?>
@@ -32,8 +32,8 @@
             <form style="display:inline" method="post">
                 <input type="hidden" name="id" value="<?= $row['id'] ?>">
                 <input name="task" value="<?= htmlspecialchars($row['task']) ?>">
-                <button name="edit">へんのしゅう</button>
-                <button name="delete">さくのじょ</button>
+                <button name="edit">編集</button>
+                <button name="delete">削除</button>
             </form>
         </li>
         <?php endwhile; ?>
